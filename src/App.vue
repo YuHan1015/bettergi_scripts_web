@@ -59,8 +59,16 @@
                         <a-option v-for="author in getUniqueAuthors(category)" :key="author" :value="author">{{ author }}</a-option>
                       </a-select>
                     </a-col>
-                    <a-col :span="8">
-                      <a-select v-model="searchConditions[category.name].tags" placeholder="选择标签" style="width: 100%;" allow-clear @change="filterData(category.name)" multiple>
+                    <!-- 仅在非特定类别中显示“选择标签” -->
+                    <a-col :span="8" v-if="!categoriesToHideTags.includes(category.name)">
+                      <a-select
+                        v-model="searchConditions[category.name].tags"
+                        placeholder="选择标签"
+                        style="width: 100%;"
+                        allow-clear
+                        @change="handleTagSelect(category.name)"
+                        multiple
+                      >
                         <a-option v-for="tag in getUniqueTags(category)" :key="tag" :value="tag">{{ tag }}</a-option>
                       </a-select>
                     </a-col>
@@ -157,6 +165,9 @@ const mirrorUrls = [
   "https://ghproxy.net/{0}",
   "https://mirror.ghproxy.com/{0}"
 ];
+
+// 定义需要隐藏“选择标签”的类别
+const categoriesToHideTags = ['pathing', 'js', 'combat', 'tcg'];
 
 // 添加树搜索相关的响应式变量
 const treeSearchText = ref('');
@@ -368,8 +379,10 @@ const filterData = (categoryName) => {
   traverseCategory(category, (item) => {
     const nameMatch = !condition.name || item.name.toLowerCase().includes(condition.name.toLowerCase());
     const authorMatch = !condition.author || item.author === condition.author;
-    // 修改标签匹配逻辑
-    const tagMatch = condition.tags.length === 0 || (Array.isArray(item.tags) && condition.tags.every(tag => item.tags.includes(tag)));
+    // 仅在不需要隐藏标签的类别中执行标签匹配
+    const tagMatch = categoriesToHideTags.includes(categoryName) 
+      ? true 
+      : (condition.tags.length === 0 || (Array.isArray(item.tags) && condition.tags.every(tag => item.tags.includes(tag)));
     const pathMatch = !condition.path || (item.path && item.path.startsWith(condition.path) && item.path !== condition.path);
     if (nameMatch && authorMatch && tagMatch && pathMatch && (item.type === 'file' || (category.name === 'js' && item.type === 'directory'))) {
       filtered.push(item);
@@ -513,11 +526,14 @@ const handleTreeSelect = (selectedKeys, event, categoryName) => {
   filterData(categoryName);
 };
 
+const handleTagSelect = (categoryName) => {
+  filterData(categoryName);
+};
+
 // 添加类别名称映射
 const categoryNameMap = {
   'pathing': '地图追踪',
   'js': 'JS脚本',
-  'keymouse': '键鼠脚本',
   'combat': '战斗策略',
   'tcg': '七圣召唤',
   'onekey': '一键宏'
