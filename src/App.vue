@@ -106,12 +106,7 @@
 
         <a-empty v-else description="请选择一个仓库" />
 
-        <!-- 新增订阅表格和按钮 -->
-        <a-space direction="vertical" size="large" style="width: 100%; margin-top: 24px;">
-          <a-table :columns="subscriptionColumns" :data="subscriptionData" :pagination="false" :bordered="true" />
-          <a-button type="primary" @click="handleSubscribe">订阅</a-button>
-        </a-space>
-        <!-- 新增订阅表格和按钮结束 -->
+        <!-- 移除之前添加的订阅表格和按钮 -->
       </a-space>
     </a-layout-content>
 
@@ -126,6 +121,13 @@
         脚本详情
       </template>
       <a-descriptions :data="drawerData" layout="vertical" bordered />
+
+      <!-- 新增订阅表格 -->
+      <a-divider />
+      <a-space direction="vertical" size="large" style="width: 100%;">
+        <a-table :columns="subscriptionColumns" :data="currentSubscriptionData" :pagination="false" :bordered="true" />
+      </a-space>
+      <!-- 新增订阅表格结束 -->
     </a-drawer>
 
     <!-- 添加加载模态框 -->
@@ -146,7 +148,7 @@
 
 <script setup>
 import { ref, onMounted, reactive, computed, h } from 'vue';
-import { Message, Popover, Typography } from '@arco-design/web-vue';
+import { Message, Popover, Typography, Divider } from '@arco-design/web-vue';
 import { useClipboard } from '@vueuse/core';
 
 // 添加环境变量的引用
@@ -233,10 +235,12 @@ const loading = ref(false);
 const repoUpdateTime = ref('');
 
 // 订阅相关的响应式变量
-const subscriptionCount = ref(parseInt(localStorage.getItem('subscriptionCount')) || 0);
-const subscriberIPs = ref(JSON.parse(localStorage.getItem('subscriberIPs') || '[]'));
-const userIP = ref('');
+const subscriptionDataStore = reactive({}); // 存储所有脚本的订阅数据
 
+// 当前展示订阅数据
+const currentSubscriptionData = ref([]);
+
+// 订阅表格的列定义
 const subscriptionColumns = [
   {
     title: '类型',
@@ -250,10 +254,32 @@ const subscriptionColumns = [
   },
 ];
 
-const subscriptionData = computed(() => [
-  { key: '1', type: '订阅量', count: subscriptionCount.value },
-  { key: '2', type: '订阅人数', count: subscriberIPs.value.length },
-]);
+// 计算属性，用于获取当前脚本的订阅数据
+const getCurrentSubscriptionData = (scriptPath) => {
+  const data = subscriptionDataStore[scriptPath] || { count: 0, ips: [] };
+  return [
+    { key: '1', type: '订阅量', count: data.count },
+    { key: '2', type: '订阅人数', count: data.ips.length },
+  ];
+};
+
+// 订阅表格数据
+const currentSubscriptionDataComputed = computed(() => {
+  return currentSubscriptionData.value;
+});
+
+// 初始化订阅数据
+const initializeSubscriptionData = () => {
+  const storedData = localStorage.getItem('subscriptionData');
+  if (storedData) {
+    Object.assign(subscriptionDataStore, JSON.parse(storedData));
+  }
+};
+
+// 保存订阅数据到 localStorage
+const saveSubscriptionData = () => {
+  localStorage.setItem('subscriptionData', JSON.stringify(subscriptionDataStore));
+};
 
 const columns = [
   { 
@@ -457,7 +483,7 @@ const downloadScript = async (script) => {
 
   if (mode === 'single') {
     try {
-      await subscribeToLocal(fullUrl);
+      await subscribeToLocal(fullUrl, script.path);
       // Message.success(`已成功订阅 ${script.name}`);
     } catch (error) {
       console.error('订阅脚本失败:', error);
@@ -474,9 +500,10 @@ const downloadScript = async (script) => {
   }
 };
 
-const subscribeToLocal = async (url) => {
+const subscribeToLocal = async (url, scriptPath) => {
   const repoWebBridge = chrome.webview.hostObjects.repoWebBridge;
   await repoWebBridge.ImportUri(url);
+  handleSubscribe(scriptPath);
 };
 
 const showDetails = (script) => {
@@ -488,11 +515,24 @@ const showDetails = (script) => {
     { label: '标签', value: script.tags },
     { label: 'Hash', value: script.hash },
   ];
+  // 设置当前展示的脚本路径，以便显示对应的订阅数据
+  currentScriptPath.value = script.path;
+  currentSubscriptionData.value = getCurrentSubscriptionData(script.path);
   drawerVisible.value = true;
 };
 
 const closeDrawer = () => {
   drawerVisible.value = false;
+};
+
+// 当前展示的脚本路径
+const currentScriptPath = ref('');
+
+// 获取当前脚本的订阅数据并更新表格
+const updateCurrentSubscriptionData = () => {
+  if (currentScriptPath.value) {
+    currentSubscriptionData.value = getCurrentSubscriptionData(currentScriptPath.value);
+  }
 };
 
 const getCategoryTree = (category) => {
@@ -617,6 +657,8 @@ const getExpandedKeys = (category) => {
 };
 
 // 新增：获取用户 IP 地址
+const userIP = ref('');
+
 const fetchUserIP = async () => {
   try {
     const response = await fetch('https://api.ipify.org?format=json');
@@ -629,22 +671,34 @@ const fetchUserIP = async () => {
 };
 
 // 新增：处理订阅按钮点击
-const handleSubscribe = () => {
+const handleSubscribe = (scriptPath) => {
   if (!userIP.value) {
     Message.error('IP地址未获取，无法订阅');
     return;
   }
-  if (subscriberIPs.value.includes(userIP.value)) {
-    Message.info('您已订阅');
+  
+  if (!subscriptionDataStore[scriptPath]) {
+    subscriptionDataStore[scriptPath] = { count: 0, ips: [] };
+  }
+  
+  const scriptSubscription = subscriptionDataStore[scriptPath];
+  
+  if (scriptSubscription.ips.includes(userIP.value)) {
+    Message.info('您已订阅该脚本');
   } else {
-    subscriptionCount.value += 1;
-    subscriberIPs.value.push(userIP.value);
-    // 更新 localStorage
-    localStorage.setItem('subscriptionCount', subscriptionCount.value);
-    localStorage.setItem('subscriberIPs', JSON.stringify(subscriberIPs.value));
+    scriptSubscription.count += 1;
+    scriptSubscription.ips.push(userIP.value);
+    saveSubscriptionData();
     Message.success('订阅成功');
+    // 如果当前打开的详情是该脚本，更新订阅表格
+    if (currentScriptPath.value === scriptPath) {
+      updateCurrentSubscriptionData();
+    }
   }
 };
+
+// 初始化订阅数据
+initializeSubscriptionData();
 
 onMounted(() => {
   // 默认选中第一个仓库
