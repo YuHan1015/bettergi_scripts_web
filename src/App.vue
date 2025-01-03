@@ -1,6 +1,6 @@
 <template>
   <a-layout>
-    <a-layout-content :style="{ padding: '20px 50px' }">
+    <a-layout-content :style="{ padding: '20px 50px' }"> 
       <a-space direction="vertical" size="large" fill>
         <a-space>
           <a-select
@@ -59,16 +59,8 @@
                         <a-option v-for="author in getUniqueAuthors(category)" :key="author" :value="author">{{ author }}</a-option>
                       </a-select>
                     </a-col>
-                    <!-- 仅在非特定类别中显示“选择标签” -->
-                    <a-col :span="8" v-if="!categoriesToHideTags.includes(category.name)">
-                      <a-select
-                        v-model="searchConditions[category.name].tags"
-                        placeholder="选择标签"
-                        style="width: 100%;"
-                        allow-clear
-                        @change="handleTagSelect(category.name)"
-                        multiple
-                      >
+                    <a-col :span="8">
+                      <a-select v-model="searchConditions[category.name].tags" placeholder="选择标签" style="width: 100%;" allow-clear @change="handleTagSelect(category.name)" multiple>
                         <a-option v-for="tag in getUniqueTags(category)" :key="tag" :value="tag">{{ tag }}</a-option>
                       </a-select>
                     </a-col>
@@ -113,6 +105,13 @@
         </a-tabs>
 
         <a-empty v-else description="请选择一个仓库" />
+
+        <!-- 新增订阅表格和按钮 -->
+        <a-space direction="vertical" size="large" style="width: 100%; margin-top: 24px;">
+          <a-table :columns="subscriptionColumns" :data="subscriptionData" :pagination="false" :bordered="true" />
+          <a-button type="primary" @click="handleSubscribe">订阅</a-button>
+        </a-space>
+        <!-- 新增订阅表格和按钮结束 -->
       </a-space>
     </a-layout-content>
 
@@ -165,9 +164,6 @@ const mirrorUrls = [
   "https://ghproxy.net/{0}",
   "https://mirror.ghproxy.com/{0}"
 ];
-
-// 定义需要隐藏“选择标签”的类别
-const categoriesToHideTags = ['pathing', 'js', 'combat', 'tcg'];
 
 // 添加树搜索相关的响应式变量
 const treeSearchText = ref('');
@@ -235,6 +231,29 @@ const loading = ref(false);
 
 // 添加新的响应式量
 const repoUpdateTime = ref('');
+
+// 订阅相关的响应式变量
+const subscriptionCount = ref(parseInt(localStorage.getItem('subscriptionCount')) || 0);
+const subscriberIPs = ref(JSON.parse(localStorage.getItem('subscriberIPs') || '[]'));
+const userIP = ref('');
+
+const subscriptionColumns = [
+  {
+    title: '类型',
+    dataIndex: 'type',
+    key: 'type',
+  },
+  {
+    title: '数量',
+    dataIndex: 'count',
+    key: 'count',
+  },
+];
+
+const subscriptionData = computed(() => [
+  { key: '1', type: '订阅量', count: subscriptionCount.value },
+  { key: '2', type: '订阅人数', count: subscriberIPs.value.length },
+]);
 
 const columns = [
   { 
@@ -379,10 +398,8 @@ const filterData = (categoryName) => {
   traverseCategory(category, (item) => {
     const nameMatch = !condition.name || item.name.toLowerCase().includes(condition.name.toLowerCase());
     const authorMatch = !condition.author || item.author === condition.author;
-    // 仅在不需要隐藏标签的类别中执行标签匹配
-    const tagMatch = categoriesToHideTags.includes(categoryName) 
-      ? true 
-      : (condition.tags.length === 0 || (Array.isArray(item.tags) && condition.tags.every(tag => item.tags.includes(tag)));
+    // 修改标签匹配逻辑
+    const tagMatch = condition.tags.length === 0 || (Array.isArray(item.tags) && condition.tags.every(tag => item.tags.includes(tag)));
     const pathMatch = !condition.path || (item.path && item.path.startsWith(condition.path) && item.path !== condition.path);
     if (nameMatch && authorMatch && tagMatch && pathMatch && (item.type === 'file' || (category.name === 'js' && item.type === 'directory'))) {
       filtered.push(item);
@@ -534,6 +551,7 @@ const handleTagSelect = (categoryName) => {
 const categoryNameMap = {
   'pathing': '地图追踪',
   'js': 'JS脚本',
+  'keymouse': '键鼠脚本',
   'combat': '战斗策略',
   'tcg': '七圣召唤',
   'onekey': '一键宏'
@@ -598,12 +616,44 @@ const getExpandedKeys = (category) => {
   return keys;
 };
 
+// 新增：获取用户 IP 地址
+const fetchUserIP = async () => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    userIP.value = data.ip;
+  } catch (error) {
+    console.error('获取IP地址失败:', error);
+    Message.error('获取IP地址失败');
+  }
+};
+
+// 新增：处理订阅按钮点击
+const handleSubscribe = () => {
+  if (!userIP.value) {
+    Message.error('IP地址未获取，无法订阅');
+    return;
+  }
+  if (subscriberIPs.value.includes(userIP.value)) {
+    Message.info('您已订阅');
+  } else {
+    subscriptionCount.value += 1;
+    subscriberIPs.value.push(userIP.value);
+    // 更新 localStorage
+    localStorage.setItem('subscriptionCount', subscriptionCount.value);
+    localStorage.setItem('subscriberIPs', JSON.stringify(subscriberIPs.value));
+    Message.success('订阅成功');
+  }
+};
+
 onMounted(() => {
   // 默认选中第一个仓库
   if (repoOptions.value.length > 0) {
     selectedRepo.value = repoOptions.value[0].value;
     fetchRepoData();
   }
+  // 获取用户 IP 地址
+  fetchUserIP();
 });
 </script>
 
@@ -629,5 +679,10 @@ onMounted(() => {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
+}
+
+/* 可选：为订阅表格和按钮添加一些间距 */
+.subscription-section {
+  margin-top: 24px;
 }
 </style>
